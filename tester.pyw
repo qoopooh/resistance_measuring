@@ -12,16 +12,18 @@ from queue import Queue
 from random import randint
 from threading import Thread
 from time import sleep
-from tkinter import ttk, Tk, Menu, filedialog, Label, Button, \
-        StringVar, messagebox as mBox, BOTH
+from tkinter import Tk, Menu, Entry, LabelFrame, Label, \
+        StringVar, messagebox as mBox, filedialog
+from tkinter.ttk import Style, Combobox, Button
 
 import serial
 
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, PatternFill
 from serial.tools.list_ports import comports
 
-VERSION = '0.1'
-TITLE = 'Res Measuring V{}'.format(VERSION)
+VERSION = '0.3'
+TITLE = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME = 150 # milliseconds
 
@@ -33,6 +35,8 @@ class Config:
 
     comport = None
     test_wo_sensor = False
+    lot_no = ''
+    cable_no = 0
 
     def __init__(self):
 
@@ -46,6 +50,10 @@ class Config:
                 self.comport = obj['comport']
             if 'test_wo_sensor' in obj:
                 self.test_wo_sensor = obj['test_wo_sensor']
+            if 'lot_no' in obj:
+                self.lot_no = obj['lot_no']
+            if 'cable_no' in obj:
+                self.cable_no = obj['cable_no']
 
     def save(self):
         """Save to json file"""
@@ -54,6 +62,8 @@ class Config:
             out = {
                 'comport': self.comport,
                 'test_wo_sensor': self.test_wo_sensor,
+                'lot_no': self.lot_no,
+                'cable_no': self.cable_no,
             }
             json.dump(out, outfile, indent=2)
 
@@ -68,11 +78,14 @@ class Recorder:
                 '{}.csv'.format(month))
 
 
-    def log(self, val):
+    def record(self, val, result='', lot='', cable_no=None):
         """Record value
 
         Args:
             val (float): resistance value
+            result (string): resistance value
+            lot (string): lot number
+            cable_no (number): cable number
 
         Returns:
             string: filename
@@ -86,7 +99,10 @@ class Recorder:
                     '{}.csv'.format(month))
 
         with open(self.path, 'a+') as outfile:
-            msg = '{},{}\n'.format(time, val)
+            if cable_no:
+                msg = '{},{},{},{},{}\n'.format(time, lot, cable_no, val, result)
+            else:
+                msg = '{},{},,{},{}\n'.format(time, lot, val, result)
             print('recording: {}'.format(msg), end='')
 
             outfile.write(msg)
@@ -119,30 +135,62 @@ class MainApp(Tk):
         file_menu.add_command(label='Exit', command=self.quit)
         menu_bar.add_cascade(label='File', menu=file_menu)
 
-        self.resistance_label = Label(win, text='XXX.XX',
-                font=('times', 192, 'bold'),
-                height=2, width=8
-                )
+        self.resistance_label = Label(win, text='XXX.XX')
         self.resistance_label.config(background='green', foreground='black')
-        self.resistance_label.grid(column=0, row=0,
-                sticky='new', padx=12, pady=12)
+        self.resistance_label.grid(
+                column=0, row=0,
+                sticky='nsew',
+                padx=12, pady=10)
+        win.rowconfigure(0, weight=1)
+        win.columnconfigure(0, weight=1)
 
-        self.check_button = Button(win, text='Check',
+        s = Style()
+        s.configure('my.TButton', font=('times', 18))
+        self.check_button = Button(win, text='\nCheck\n',
                 command=self.check,
-                font=('times', 20),
+                style='my.TButton',
                 )
         self.check_button.config(width=20)
-        self.check_button.grid(column=0, row=1, pady=10)
+        self.check_button.grid(column=0, row=1)
         self.check_button.focus()
 
+        setting_frame = LabelFrame(win, text='Setting')
+        setting_frame.grid(row=2, column=0, pady=10)
+
         ports = self._portlist()
-        self.selected_port = StringVar()
-        self.port_combobox = ttk.Combobox(win,
-                values=ports, textvariable=self.selected_port)
-        self.port_combobox.grid(column=0, row=3)
+        self.selected_port_var = StringVar()
+        self.port_combobox = Combobox(setting_frame, state='readonly',
+                values=ports, textvariable=self.selected_port_var)
+        self.port_combobox.grid(row=0, column=0, padx=8)
 
         if self.cfg.comport and self.cfg.comport in ports:
-            self.selected_port.set(self.cfg.comport)
+            self.selected_port_var.set(self.cfg.comport)
+
+        lot_label = Label(setting_frame, text='Lot no.')
+        lot_label.grid(row=0, column=1)
+        self.lot_var = StringVar()
+        lot_entry = Entry(setting_frame, width=20, textvariable=self.lot_var)
+        lot_entry.grid(row=0, column=2, padx=8, pady=4)
+
+        cable_label = Label(setting_frame, text='Cable no.')
+        cable_label.grid(row=1, column=1)
+        self.cable_var = StringVar()
+        cable_entry = Entry(setting_frame, width=20, textvariable=self.cable_var, justify='center', state='readonly')
+        cable_entry.grid(row=1, column=2, padx=8, pady=4)
+
+        #
+        # init cable info
+        #
+        self.lot_var.set(self.cfg.lot_no)
+        self.cable_var.set(self.cfg.cable_no)
+
+        win.bind("<Configure>", self.on_resize)
+
+
+    def on_resize(self, event):
+        #print('on_resize: {} {}'.format(event.width, event.height))
+        self.resistance_label.config(
+                font=('times', int(self.master.winfo_width() / 5), 'bold'))
 
 
     def quit(self):
@@ -183,10 +231,10 @@ class MainApp(Tk):
 
         if self.cfg.test_wo_sensor:
             sleep(1)
-            val = randint(25000, 45000) / 100
+            val = randint(28000, 42000) / 100
         else:
             try:
-                port = self.selected_port.get()
+                port = self.selected_port_var.get()
                 if not self.serial:
                     self.serial =  serial.Serial(port, 9600, timeout=3)
                     sleep(2)
@@ -201,7 +249,7 @@ class MainApp(Tk):
                     print('{}: {}'.format(self.serial.name, data))
                     val = float(data.strip())
                 else:
-                    val = 0.0
+                    val = -2
 
                 if port != self.cfg.comport:
                     self.cfg.comport = port
@@ -220,20 +268,40 @@ class MainApp(Tk):
         if self._thread.is_alive():
             self.master.after(LOOP_TIME, self._listen_for_resistance)
             return
-        #if self.queue.empty():
-            #self.master.after(LOOP_TIME, self._listen_for_resistance)
-            #return
 
         val = self.queue.get()
-        if self.recorder.log(val) != self.export_menu.entrycget(0, 'label'):
-            self._create_csv_log_menu()
+        lot_no, cable_no = self._get_cable_info()
 
+        result = 'Pass'
         if val >= 300 and val <= 400:
             self.resistance_label.config(bg='green', text='{}'.format(val))
         else:
+            result = 'Fail'
             self.resistance_label.config(bg='red', text='{}'.format(val))
 
+        if val > 0:
+            month = self.recorder.record(val, result, lot_no, cable_no)
+            if month != self.last_month:
+                self._create_csv_log_menu()
+            self.cfg.lot_no = lot_no
+            self.cfg.cable_no = cable_no
+            self.cfg.save()
+            self.cable_var.set(str(cable_no))
+
         self.check_button.config(state='active')
+
+
+    def _get_cable_info(self):
+
+        lot_no = self.lot_var.get().strip()
+        cable_no = 1
+        if lot_no == self.cfg.lot_no:
+            try:
+                cable_no = int(self.cable_var.get()) + 1
+            except Exception as e:
+                print(e)
+
+        return lot_no, cable_no
 
 
     def _portlist(self):
@@ -263,6 +331,10 @@ class MainApp(Tk):
             action_with_arg = partial(self._export_data, month)
             self.export_menu.add_command(label=month, command=action_with_arg)
         print('_create_csv_log_menu: {}'.format(months))
+        if len(months) > 0:
+            self.last_month = months[-1]
+        else:
+            self.last_month = ''
 
 
     def _export_data(self, filename):
@@ -272,20 +344,65 @@ class MainApp(Tk):
             filename (string): month name
         """
 
-        #mBox.showinfo(TITLE, filename)
-
         folder = filedialog.askdirectory()
         if not folder:
             return
 
         wb = Workbook()
         ws = wb.active
+        headers = ('Time', 'Lot No.', 'Cable No.', 'Value', 'Result')
+        no_cols = []
+        for name in headers:
+            if name in ('Cable No.', 'Value'):
+                no_cols.append(headers.index(name))
         with open('{}.csv'.format(filename), 'r') as f:
-            ws.append(('timestamp','value'))
+            ws.append(headers)
             for row in csv.reader(f):
+                for i in no_cols:
+                    try:
+                        row[i] = int(row[i])
+                    except Exception as e:
+                        row[i] = float(row[i])
+
                 ws.append(row)
+
+        fill_format = PatternFill(start_color="e0efd4", end_color="e0efd4", fill_type = "solid")
+        self._adjust_column_width(ws)
+        for i in range(len(headers)):
+            ws['{}1'.format(chr(ord('A')+i))].fill = fill_format
+
+        #
+        # Freeze first row / col
+        #
+        c = ws['B2']
+        ws.freeze_panes = c
+
         path = os.path.join(folder, 'resistance-{}.xlsx'.format(filename))
         wb.save(path)
+
+
+    def _adjust_column_width(self, worksheet):
+        """Manage columns of exported file
+
+        Args:
+            worksheet (object): current worksheet
+        """
+
+        adjusted_width = 0
+        for col in worksheet.columns:
+            max_length = 0
+            #column = col[0].column # Get the column name
+            column = col[0].column # Get the column name
+            for cell in col:
+                try: # Necessary to avoid error on empty cells
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(cell.value)
+                except:
+                    pass
+                cell.alignment = Alignment(horizontal='center')
+            adjusted_width = (max_length + 2) * 1.2
+            column_name = chr(ord('A') + column - 1)
+            worksheet.column_dimensions[column_name].width = adjusted_width
 
 
 if __name__ == '__main__':
@@ -294,7 +411,7 @@ if __name__ == '__main__':
     app = MainApp(win)
 
     win.title(TITLE)
-    win.geometry('%dx%d+%d+%d' % (800, 560, 64, 32))
-    win.resizable(0, 0)
+    win.geometry('%dx%d+%d+%d' % (800, 550, 64, 32))
+    # win.resizable(0, 0)
 
     win.mainloop()
