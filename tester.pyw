@@ -150,13 +150,13 @@ class MainApp(Tk):
         self.check_button.focus()
 
         setting_frame = LabelFrame(win, text='Setting')
-        setting_frame.grid(row=2, column=0, sticky='nsw', padx=16, columnspan=3)
+        setting_frame.grid(row=2, column=0)
 
         ports = self._portlist()
         self.selected_port_var = StringVar()
         self.port_combobox = ttk.Combobox(setting_frame,
                 values=ports, textvariable=self.selected_port_var)
-        self.port_combobox.grid(row=0, column=0)
+        self.port_combobox.grid(row=0, column=0, padx=8)
 
         if self.cfg.comport and self.cfg.comport in ports:
             self.selected_port_var.set(self.cfg.comport)
@@ -165,14 +165,13 @@ class MainApp(Tk):
         lot_label.grid(row=0, column=1)
         self.lot_var = StringVar()
         lot_entry = Entry(setting_frame, width=20, textvariable=self.lot_var)
-        lot_entry.grid(row=0, column=2)
+        lot_entry.grid(row=0, column=2, padx=8, pady=4)
 
         cable_label = Label(setting_frame, text='Cable no.')
         cable_label.grid(row=1, column=1)
         self.cable_var = StringVar()
         cable_entry = Entry(setting_frame, width=20, textvariable=self.cable_var)
-        cable_entry.grid(row=1, column=2)
-
+        cable_entry.grid(row=1, column=2, padx=8, pady=4)
 
         #
         # init cable info
@@ -348,7 +347,7 @@ if __name__ == '__main__':
     app = MainApp(win)
 
     win.title(TITLE)
-    win.geometry('%dx%d+%d+%d' % (800, 520, 64, 32))
+    win.geometry('%dx%d+%d+%d' % (800, 550, 64, 32))
     # win.resizable(0, 0)
 
     win.mainloop()
