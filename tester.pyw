@@ -12,8 +12,9 @@ from queue import Queue
 from random import randint
 from threading import Thread
 from time import sleep
-from tkinter import ttk, Tk, Menu, filedialog, Label, Button, \
-        StringVar, messagebox as mBox, BOTH
+from tkinter import ttk, Tk, Menu, Entry, Label, Button, \
+        LabelFrame, \
+        StringVar, messagebox as mBox, BOTH, filedialog
 
 import serial
 
@@ -34,7 +35,7 @@ class Config:
     comport = None
     test_wo_sensor = False
     lot_no = ''
-    running_no = 0
+    cable_no = 0
 
     def __init__(self):
 
@@ -48,6 +49,10 @@ class Config:
                 self.comport = obj['comport']
             if 'test_wo_sensor' in obj:
                 self.test_wo_sensor = obj['test_wo_sensor']
+            if 'lot_no' in obj:
+                self.lot_no = obj['lot_no']
+            if 'cable_no' in obj:
+                self.cable_no = obj['cable_no']
 
     def save(self):
         """Save to json file"""
@@ -56,6 +61,8 @@ class Config:
             out = {
                 'comport': self.comport,
                 'test_wo_sensor': self.test_wo_sensor,
+                'lot_no': self.lot_no,
+                'cable_no': self.cable_no,
             }
             json.dump(out, outfile, indent=2)
 
@@ -70,11 +77,13 @@ class Recorder:
                 '{}.csv'.format(month))
 
 
-    def log(self, val):
+    def record(self, val, lot='', cable_no=None):
         """Record value
 
         Args:
             val (float): resistance value
+            lot (string): lot number
+            cable_no (number): cable number
 
         Returns:
             string: filename
@@ -88,7 +97,10 @@ class Recorder:
                     '{}.csv'.format(month))
 
         with open(self.path, 'a+') as outfile:
-            msg = '{},{}\n'.format(time, val)
+            if cable_no:
+                msg = '{},{},{},{}\n'.format(time, lot, cable_no, val)
+            else:
+                msg = '{},{},,{}\n'.format(time, lot, val)
             print('recording: {}'.format(msg), end='')
 
             outfile.write(msg)
@@ -103,7 +115,6 @@ class MainApp(Tk):
     recorder = Recorder()
     queue = Queue()
     serial = None
-    running_no = 0
 
     def __init__(self, win):
         """Big frame"""
@@ -138,21 +149,36 @@ class MainApp(Tk):
         self.check_button.grid(column=0, row=1, pady=10)
         self.check_button.focus()
 
+        setting_frame = LabelFrame(win, text='Setting')
+        setting_frame.grid(row=2, column=0, sticky='nsw', padx=16, columnspan=3)
+
         ports = self._portlist()
         self.selected_port_var = StringVar()
-        self.port_combobox = ttk.Combobox(win,
+        self.port_combobox = ttk.Combobox(setting_frame,
                 values=ports, textvariable=self.selected_port_var)
-        self.port_combobox.grid(column=0, row=2)
+        self.port_combobox.grid(row=0, column=0)
 
         if self.cfg.comport and self.cfg.comport in ports:
             self.selected_port_var.set(self.cfg.comport)
 
-        lot_label = Label(win, text='Lot no.')
-        lot_label.grid(column=1, row=2)
-        cable_label = Label(win, text='Cable no.')
-        cable_label.grid(column=3, row=2)
-        running_no_label = Label(win, text='-')
-        running_no_label.grid(column=4, row=2)
+        lot_label = Label(setting_frame, text='Lot no.')
+        lot_label.grid(row=0, column=1)
+        self.lot_var = StringVar()
+        lot_entry = Entry(setting_frame, width=20, textvariable=self.lot_var)
+        lot_entry.grid(row=0, column=2)
+
+        cable_label = Label(setting_frame, text='Cable no.')
+        cable_label.grid(row=1, column=1)
+        self.cable_var = StringVar()
+        cable_entry = Entry(setting_frame, width=20, textvariable=self.cable_var)
+        cable_entry.grid(row=1, column=2)
+
+
+        #
+        # init cable info
+        #
+        self.lot_var.set(self.cfg.lot_no)
+        self.cable_var.set(self.cfg.cable_no)
 
 
     def quit(self):
@@ -232,9 +258,14 @@ class MainApp(Tk):
             return
 
         val = self.queue.get()
-        month = self.recorder.log(val)
+        lot_no, cable_no = self._get_cable_info()
+        month = self.recorder.record(val, lot_no, cable_no)
         if month != self.last_month:
             self._create_csv_log_menu()
+        self.cfg.lot_no = lot_no
+        self.cfg.cable_no = cable_no
+        self.cfg.save()
+        self.cable_var.set(str(cable_no))
 
         if val >= 300 and val <= 400:
             self.resistance_label.config(bg='green', text='{}'.format(val))
@@ -242,6 +273,19 @@ class MainApp(Tk):
             self.resistance_label.config(bg='red', text='{}'.format(val))
 
         self.check_button.config(state='active')
+
+
+    def _get_cable_info(self):
+
+        lot_no = self.lot_var.get().strip()
+        cable_no = 1
+        if lot_no == self.cfg.lot_no:
+            try:
+                cable_no = int(self.cable_var.get()) + 1
+            except Exception as e:
+                print(e)
+
+        return lot_no, cable_no
 
 
     def _portlist(self):
@@ -284,8 +328,6 @@ class MainApp(Tk):
             filename (string): month name
         """
 
-        #mBox.showinfo(TITLE, filename)
-
         folder = filedialog.askdirectory()
         if not folder:
             return
@@ -293,7 +335,7 @@ class MainApp(Tk):
         wb = Workbook()
         ws = wb.active
         with open('{}.csv'.format(filename), 'r') as f:
-            ws.append(('timestamp','value'))
+            ws.append(('timestamp', 'lot', 'cable', 'value'))
             for row in csv.reader(f):
                 ws.append(row)
         path = os.path.join(folder, 'resistance-{}.xlsx'.format(filename))
