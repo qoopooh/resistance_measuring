@@ -120,7 +120,7 @@ class MainApp(Tk):
         menu_bar.add_cascade(label='File', menu=file_menu)
 
         self.resistance_label = Label(win, text='XXX.XX',
-                font=('times', 192, 'bold'),
+                font=('times', 120, 'bold'),
                 height=2, width=8
                 )
         self.resistance_label.config(background='green', foreground='black')
@@ -225,7 +225,8 @@ class MainApp(Tk):
             #return
 
         val = self.queue.get()
-        if self.recorder.log(val) != self.export_menu.entrycget(0, 'label'):
+        month = self.recorder.log(val)
+        if month != self.last_month:
             self._create_csv_log_menu()
 
         if val >= 300 and val <= 400:
@@ -263,6 +264,10 @@ class MainApp(Tk):
             action_with_arg = partial(self._export_data, month)
             self.export_menu.add_command(label=month, command=action_with_arg)
         print('_create_csv_log_menu: {}'.format(months))
+        if len(months) > 0:
+            self.last_month = months[-1]
+        else:
+            self.last_month = ''
 
 
     def _export_data(self, filename):
@@ -294,7 +299,7 @@ if __name__ == '__main__':
     app = MainApp(win)
 
     win.title(TITLE)
-    win.geometry('%dx%d+%d+%d' % (800, 560, 64, 32))
+    win.geometry('%dx%d+%d+%d' % (800, 520, 64, 32))
     win.resizable(0, 0)
 
     win.mainloop()
