@@ -21,7 +21,7 @@ from openpyxl import Workbook
 from serial.tools.list_ports import comports
 
 VERSION = '0.1'
-TITLE = 'Res Measuring V{}'.format(VERSION)
+TITLE = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME = 150 # milliseconds
 
@@ -33,6 +33,8 @@ class Config:
 
     comport = None
     test_wo_sensor = False
+    lot_no = ''
+    running_no = 0
 
     def __init__(self):
 
@@ -101,6 +103,7 @@ class MainApp(Tk):
     recorder = Recorder()
     queue = Queue()
     serial = None
+    running_no = 0
 
     def __init__(self, win):
         """Big frame"""
@@ -136,13 +139,20 @@ class MainApp(Tk):
         self.check_button.focus()
 
         ports = self._portlist()
-        self.selected_port = StringVar()
+        self.selected_port_var = StringVar()
         self.port_combobox = ttk.Combobox(win,
-                values=ports, textvariable=self.selected_port)
-        self.port_combobox.grid(column=0, row=3)
+                values=ports, textvariable=self.selected_port_var)
+        self.port_combobox.grid(column=0, row=2)
 
         if self.cfg.comport and self.cfg.comport in ports:
-            self.selected_port.set(self.cfg.comport)
+            self.selected_port_var.set(self.cfg.comport)
+
+        lot_label = Label(win, text='Lot no.')
+        lot_label.grid(column=1, row=2)
+        cable_label = Label(win, text='Cable no.')
+        cable_label.grid(column=3, row=2)
+        running_no_label = Label(win, text='-')
+        running_no_label.grid(column=4, row=2)
 
 
     def quit(self):
@@ -186,7 +196,7 @@ class MainApp(Tk):
             val = randint(25000, 45000) / 100
         else:
             try:
-                port = self.selected_port.get()
+                port = self.selected_port_var.get()
                 if not self.serial:
                     self.serial =  serial.Serial(port, 9600, timeout=3)
                     sleep(2)
@@ -220,9 +230,6 @@ class MainApp(Tk):
         if self._thread.is_alive():
             self.master.after(LOOP_TIME, self._listen_for_resistance)
             return
-        #if self.queue.empty():
-            #self.master.after(LOOP_TIME, self._listen_for_resistance)
-            #return
 
         val = self.queue.get()
         month = self.recorder.log(val)
@@ -300,6 +307,6 @@ if __name__ == '__main__':
 
     win.title(TITLE)
     win.geometry('%dx%d+%d+%d' % (800, 520, 64, 32))
-    win.resizable(0, 0)
+    # win.resizable(0, 0)
 
     win.mainloop()
