@@ -19,9 +19,10 @@ from tkinter import ttk, Tk, Menu, Entry, Label, Button, \
 import serial
 
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, PatternFill
 from serial.tools.list_ports import comports
 
-VERSION = '0.1'
+VERSION = '0.2'
 TITLE = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME = 150 # milliseconds
@@ -77,11 +78,12 @@ class Recorder:
                 '{}.csv'.format(month))
 
 
-    def record(self, val, lot='', cable_no=None):
+    def record(self, val, result='', lot='', cable_no=None):
         """Record value
 
         Args:
             val (float): resistance value
+            result (string): resistance value
             lot (string): lot number
             cable_no (number): cable number
 
@@ -98,9 +100,9 @@ class Recorder:
 
         with open(self.path, 'a+') as outfile:
             if cable_no:
-                msg = '{},{},{},{}\n'.format(time, lot, cable_no, val)
+                msg = '{},{},{},{},{}\n'.format(time, lot, cable_no, val, result)
             else:
-                msg = '{},{},,{}\n'.format(time, lot, val)
+                msg = '{},{},,{},{}\n'.format(time, lot, val, result)
             print('recording: {}'.format(msg), end='')
 
             outfile.write(msg)
@@ -170,7 +172,7 @@ class MainApp(Tk):
         cable_label = Label(setting_frame, text='Cable no.')
         cable_label.grid(row=1, column=1)
         self.cable_var = StringVar()
-        cable_entry = Entry(setting_frame, width=20, textvariable=self.cable_var)
+        cable_entry = Entry(setting_frame, width=20, textvariable=self.cable_var, justify='center', state='readonly')
         cable_entry.grid(row=1, column=2, padx=8, pady=4)
 
         #
@@ -218,7 +220,7 @@ class MainApp(Tk):
 
         if self.cfg.test_wo_sensor:
             sleep(1)
-            val = randint(25000, 45000) / 100
+            val = randint(28000, 42000) / 100
         else:
             try:
                 port = self.selected_port_var.get()
@@ -258,18 +260,21 @@ class MainApp(Tk):
 
         val = self.queue.get()
         lot_no, cable_no = self._get_cable_info()
-        month = self.recorder.record(val, lot_no, cable_no)
+
+        result = 'Pass'
+        if val >= 300 and val <= 400:
+            self.resistance_label.config(bg='green', text='{}'.format(val))
+        else:
+            result = 'Fail'
+            self.resistance_label.config(bg='red', text='{}'.format(val))
+
+        month = self.recorder.record(val, result, lot_no, cable_no)
         if month != self.last_month:
             self._create_csv_log_menu()
         self.cfg.lot_no = lot_no
         self.cfg.cable_no = cable_no
         self.cfg.save()
         self.cable_var.set(str(cable_no))
-
-        if val >= 300 and val <= 400:
-            self.resistance_label.config(bg='green', text='{}'.format(val))
-        else:
-            self.resistance_label.config(bg='red', text='{}'.format(val))
 
         self.check_button.config(state='active')
 
@@ -333,12 +338,59 @@ class MainApp(Tk):
 
         wb = Workbook()
         ws = wb.active
+        headers = ('Time', 'Lot No.', 'Cable No.', 'Value', 'Result')
+        no_cols = []
+        for name in headers:
+            if name in ('Cable No.', 'Value'):
+                no_cols.append(headers.index(name))
         with open('{}.csv'.format(filename), 'r') as f:
-            ws.append(('timestamp', 'lot', 'cable', 'value'))
+            ws.append(headers)
             for row in csv.reader(f):
+                for i in no_cols:
+                    try:
+                        row[i] = int(row[i])
+                    except Exception as e:
+                        row[i] = float(row[i])
+
                 ws.append(row)
+
+        fill_format = PatternFill(start_color="e0efd4", end_color="e0efd4", fill_type = "solid")
+        self._adjust_column_width(ws)
+        for i in range(len(headers)):
+            ws['{}1'.format(chr(ord('A')+i))].fill = fill_format
+
+        #
+        # Freeze first row / col
+        #
+        c = ws['B2']
+        ws.freeze_panes = c
+
         path = os.path.join(folder, 'resistance-{}.xlsx'.format(filename))
         wb.save(path)
+
+
+    def _adjust_column_width(self, worksheet):
+        """Manage columns of exported file
+
+        Args:
+            worksheet (object): current worksheet
+        """
+
+        adjusted_width = 0
+        for col in worksheet.columns:
+            max_length = 0
+            #column = col[0].column # Get the column name
+            column = col[0].column # Get the column name
+            for cell in col:
+                try: # Necessary to avoid error on empty cells
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(cell.value)
+                except:
+                    pass
+                cell.alignment = Alignment(horizontal='center')
+            adjusted_width = (max_length + 2) * 1.2
+            column_name = chr(ord('A') + column - 1)
+            worksheet.column_dimensions[column_name].width = adjusted_width
 
 
 if __name__ == '__main__':
