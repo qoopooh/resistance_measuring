@@ -156,7 +156,7 @@ class MainApp(Tk):
 
         ports = self._portlist()
         self.selected_port_var = StringVar()
-        self.port_combobox = ttk.Combobox(setting_frame,
+        self.port_combobox = ttk.Combobox(setting_frame, state='readonly',
                 values=ports, textvariable=self.selected_port_var)
         self.port_combobox.grid(row=0, column=0, padx=8)
 
@@ -238,7 +238,7 @@ class MainApp(Tk):
                     print('{}: {}'.format(self.serial.name, data))
                     val = float(data.strip())
                 else:
-                    val = 0.0
+                    val = -2
 
                 if port != self.cfg.comport:
                     self.cfg.comport = port
@@ -268,13 +268,14 @@ class MainApp(Tk):
             result = 'Fail'
             self.resistance_label.config(bg='red', text='{}'.format(val))
 
-        month = self.recorder.record(val, result, lot_no, cable_no)
-        if month != self.last_month:
-            self._create_csv_log_menu()
-        self.cfg.lot_no = lot_no
-        self.cfg.cable_no = cable_no
-        self.cfg.save()
-        self.cable_var.set(str(cable_no))
+        if val > 0:
+            month = self.recorder.record(val, result, lot_no, cable_no)
+            if month != self.last_month:
+                self._create_csv_log_menu()
+            self.cfg.lot_no = lot_no
+            self.cfg.cable_no = cable_no
+            self.cfg.save()
+            self.cable_var.set(str(cable_no))
 
         self.check_button.config(state='active')
 
