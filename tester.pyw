@@ -12,9 +12,9 @@ from queue import Queue
 from random import randint
 from threading import Thread
 from time import sleep
-from tkinter import ttk, Tk, Menu, Entry, Label, Button, \
-        LabelFrame, \
-        StringVar, messagebox as mBox, BOTH, filedialog
+from tkinter import Tk, Menu, Entry, LabelFrame, Label, \
+        StringVar, messagebox as mBox, filedialog
+from tkinter.ttk import Style, Combobox, Button
 
 import serial
 
@@ -22,7 +22,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, PatternFill
 from serial.tools.list_ports import comports
 
-VERSION = '0.2'
+VERSION = '0.3'
 TITLE = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME = 150 # milliseconds
@@ -135,28 +135,31 @@ class MainApp(Tk):
         file_menu.add_command(label='Exit', command=self.quit)
         menu_bar.add_cascade(label='File', menu=file_menu)
 
-        self.resistance_label = Label(win, text='XXX.XX',
-                font=('times', 120, 'bold'),
-                height=2, width=8
-                )
+        self.resistance_label = Label(win, text='XXX.XX')
         self.resistance_label.config(background='green', foreground='black')
-        self.resistance_label.grid(column=0, row=0,
-                sticky='new', padx=12, pady=12)
+        self.resistance_label.grid(
+                column=0, row=0,
+                sticky='nsew',
+                padx=12, pady=10)
+        win.rowconfigure(0, weight=1)
+        win.columnconfigure(0, weight=1)
 
-        self.check_button = Button(win, text='Check',
+        s = Style()
+        s.configure('my.TButton', font=('times', 18))
+        self.check_button = Button(win, text='\nCheck\n',
                 command=self.check,
-                font=('times', 20),
+                style='my.TButton',
                 )
         self.check_button.config(width=20)
-        self.check_button.grid(column=0, row=1, pady=10)
+        self.check_button.grid(column=0, row=1)
         self.check_button.focus()
 
         setting_frame = LabelFrame(win, text='Setting')
-        setting_frame.grid(row=2, column=0)
+        setting_frame.grid(row=2, column=0, pady=10)
 
         ports = self._portlist()
         self.selected_port_var = StringVar()
-        self.port_combobox = ttk.Combobox(setting_frame, state='readonly',
+        self.port_combobox = Combobox(setting_frame, state='readonly',
                 values=ports, textvariable=self.selected_port_var)
         self.port_combobox.grid(row=0, column=0, padx=8)
 
@@ -180,6 +183,14 @@ class MainApp(Tk):
         #
         self.lot_var.set(self.cfg.lot_no)
         self.cable_var.set(self.cfg.cable_no)
+
+        win.bind("<Configure>", self.on_resize)
+
+
+    def on_resize(self, event):
+        #print('on_resize: {} {}'.format(event.width, event.height))
+        self.resistance_label.config(
+                font=('times', int(self.master.winfo_width() / 5), 'bold'))
 
 
     def quit(self):
