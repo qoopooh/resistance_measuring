@@ -22,7 +22,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, PatternFill
 from serial.tools.list_ports import comports
 
-VERSION = '0.3'
+VERSION = '0.4'
 TITLE = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME = 150 # milliseconds
@@ -145,7 +145,7 @@ class MainApp(Tk):
         win.columnconfigure(0, weight=1)
 
         s = Style()
-        s.configure('my.TButton', font=('times', 18))
+        s.configure('my.TButton', font=(18))
         self.check_button = Button(win, text='\nCheck\n',
                 command=self.check,
                 style='my.TButton',
@@ -157,14 +157,17 @@ class MainApp(Tk):
         setting_frame = LabelFrame(win, text='Setting')
         setting_frame.grid(row=2, column=0, pady=10)
 
-        ports = self._portlist()
         self.selected_port_var = StringVar()
         self.port_combobox = Combobox(setting_frame, state='readonly',
-                values=ports, textvariable=self.selected_port_var)
+                textvariable=self.selected_port_var)
         self.port_combobox.grid(row=0, column=0, padx=8)
+        self._update_portlist()
 
-        if self.cfg.comport and self.cfg.comport in ports:
-            self.selected_port_var.set(self.cfg.comport)
+        refresh_button = Button(setting_frame,
+                text='Refresh',
+                command=self._update_portlist,
+                )
+        refresh_button.grid(row=1, column=0)
 
         lot_label = Label(setting_frame, text='Lot no.')
         lot_label.grid(row=0, column=1)
@@ -259,6 +262,7 @@ class MainApp(Tk):
                 print(e)
                 self.serial = None
                 val = -1
+                #self._update_portlist()
         self.queue.put(val)
 
 
@@ -304,19 +308,37 @@ class MainApp(Tk):
         return lot_no, cable_no
 
 
+    def _update_portlist(self):
+        """Re-assign port list"""
+
+        ports = self._portlist()
+        self.port_combobox['values'] = ports
+        if self.cfg.comport and self.cfg.comport in ports:
+            self.selected_port_var.set(self.cfg.comport)
+
+
     def _portlist(self):
         """Scan avaiable ports"""
 
         ports = []
+
+        ##
+        ## dummy ports
+        ##
+        #val = randint(1, 10)
+        #for i in range(val):
+            #ports.append('com{}'.format(i+1))
+        #return ports
+
         _ports = comports()
 
         if len(_ports) < 1:
             return ports
 
-        for port in _ports:
-            #print("{}\n\t{}, {}".format(port, port.device, dir(port)))
-            ports.append(port.device)
-        return ports
+        #for port in _ports:
+            #ports.append(port.device)
+        #return ports
+        return [ port.device for port in _ports ]
 
 
     def _create_csv_log_menu(self):
@@ -391,8 +413,7 @@ class MainApp(Tk):
         adjusted_width = 0
         for col in worksheet.columns:
             max_length = 0
-            #column = col[0].column # Get the column name
-            column = col[0].column # Get the column name
+            col_idx = col[0].column # Get the column index
             for cell in col:
                 try: # Necessary to avoid error on empty cells
                     if len(str(cell.value)) > max_length:
@@ -401,7 +422,7 @@ class MainApp(Tk):
                     pass
                 cell.alignment = Alignment(horizontal='center')
             adjusted_width = (max_length + 2) * 1.2
-            column_name = chr(ord('A') + column - 1)
+            column_name = chr(ord('A') + col_idx - 1)
             worksheet.column_dimensions[column_name].width = adjusted_width
 
 
