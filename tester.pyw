@@ -2,8 +2,9 @@
 """Resistance Measuring software"""
 
 import csv
-import os
 import json
+import os
+import re
 
 from datetime import datetime
 from functools import partial
@@ -22,10 +23,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, PatternFill
 from serial.tools.list_ports import comports
 
-VERSION = '0.4'
+VERSION = '1.0'
 TITLE = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME = 150 # milliseconds
+#FIRST_CONN_DELAY = 2
 
 class Config:
     """Save a configuration"""
@@ -97,6 +99,7 @@ class Recorder:
             self.path = os.path.join(
                     os.path.dirname(os.path.realpath(__file__)),
                     '{}.csv'.format(month))
+
 
         with open(self.path, 'a+') as outfile:
             if cable_no:
@@ -240,17 +243,24 @@ class MainApp(Tk):
                 port = self.selected_port_var.get()
                 if not self.serial:
                     self.serial =  serial.Serial(port, 9600, timeout=3)
-                    sleep(2)
+                    #sleep(FIRST_CONN_DELAY)
+                    self.serial.readline()
                 elif port != self.serial.name:
                     self.serial.close()
                     self.serial =  serial.Serial(port, 9600, timeout=3)
-                    sleep(2)
+                    #sleep(FIRST_CONN_DELAY)
+                    self.serial.readline()
 
+                self.serial.flush()
                 self.serial.write(b'M\n')
                 data = self.serial.readline()
                 if data:
-                    print('{}: {}'.format(self.serial.name, data))
-                    val = float(data.strip())
+                    msg = data.decode('ascii').strip()
+                    #print('{}: {} -> {}'.format(self.serial.name, data, msg))
+                    if re.findall("\d+\.\d+", msg):
+                        val = float(msg)
+                    else:
+                        val = -3
                 else:
                     val = -2
 
@@ -263,6 +273,7 @@ class MainApp(Tk):
                 self.serial = None
                 val = -1
                 #self._update_portlist()
+
         self.queue.put(val)
 
 
@@ -291,6 +302,9 @@ class MainApp(Tk):
             self.cfg.cable_no = cable_no
             self.cfg.save()
             self.cable_var.set(str(cable_no))
+
+        else:
+            self._error_dialog(val)
 
         self.check_button.config(state='active')
 
@@ -335,9 +349,6 @@ class MainApp(Tk):
         if len(_ports) < 1:
             return ports
 
-        #for port in _ports:
-            #ports.append(port.device)
-        #return ports
         return [ port.device for port in _ports ]
 
 
@@ -424,6 +435,31 @@ class MainApp(Tk):
             adjusted_width = (max_length + 2) * 1.2
             column_name = chr(ord('A') + col_idx - 1)
             worksheet.column_dimensions[column_name].width = adjusted_width
+
+
+    def _error_dialog(self, err_no, title="เกิดข้อผิดพลาด"):
+        """Show about box
+
+        Args:
+            err_no (number): error number
+            title (string): title
+        """
+
+        print("_error_dialog {title}: {err_no}".format(
+            title=title, err_no=err_no))
+        if err_no == -1:
+            title = 'No devices'
+            message = u'ไม่เจออุปกรณ์'
+        elif err_no == -2:
+            title = 'No response'
+            message = u'ไม่สามารถรับค่าได้'
+        elif err_no == -3:
+            title = 'Wrong format'
+            message = u'ข้อมูลไม่ถูกต้อง'
+        else:
+            message = err_no
+
+        mBox.showerror(title, "ERROR: {} !".format(message))
 
 
 if __name__ == '__main__':
