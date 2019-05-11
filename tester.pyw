@@ -4,7 +4,6 @@
 import csv
 import json
 import os
-import re
 
 from datetime import datetime
 from functools import partial
@@ -17,17 +16,16 @@ from tkinter import Tk, Menu, Entry, LabelFrame, Label, \
         StringVar, messagebox as mBox, filedialog
 from tkinter.ttk import Style, Combobox, Button
 
-import serial
-
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, PatternFill
+from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
 VERSION = '1.0'
 TITLE = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME = 150 # milliseconds
-#FIRST_CONN_DELAY = 2
+SERIAL_READ_TIMEOUT = 2.5
 
 class Config:
     """Save a configuration"""
@@ -242,37 +240,45 @@ class MainApp(Tk):
             try:
                 port = self.selected_port_var.get()
                 if not self.serial:
-                    self.serial =  serial.Serial(port, 9600, timeout=3)
-                    #sleep(FIRST_CONN_DELAY)
+                    self.serial =  Serial(port, 9600, timeout=SERIAL_READ_TIMEOUT)
                     self.serial.readline()
                 elif port != self.serial.name:
                     self.serial.close()
-                    self.serial =  serial.Serial(port, 9600, timeout=3)
-                    #sleep(FIRST_CONN_DELAY)
+                    self.serial =  Serial(port, 9600, timeout=SERIAL_READ_TIMEOUT)
                     self.serial.readline()
 
                 self.serial.flush()
                 self.serial.write(b'M\n')
                 data = self.serial.readline()
-                if data:
-                    msg = data.decode('ascii').strip()
-                    #print('{}: {} -> {}'.format(self.serial.name, data, msg))
-                    if re.findall("\d+\.\d+", msg):
-                        val = float(msg)
-                    else:
-                        val = -3
-                else:
-                    val = -2
+                if len(data) == 0:
+                    data = None
+
+                msg = data.decode('ascii').strip()
+                #print('{}: {} -> {}'.format(self.serial.name, data, msg))
+
+                val = float(msg)
 
                 if port != self.cfg.comport:
                     self.cfg.comport = port
                     self.cfg.save()
 
-            except Exception as e:
+            except SerialException as e:
                 print(e)
                 self.serial = None
                 val = -1
-                #self._update_portlist()
+            except AttributeError as e:
+                print(e)
+                val = -2
+            except ValueError as e:
+                print(e)
+                val = -3
+                if port != self.cfg.comport:
+                    self.cfg.comport = port
+                    self.cfg.save()
+            except Exception as e:
+                print('{}: {}'.format(type(e), e))
+                self.serial = None
+                val = -10
 
         self.queue.put(val)
 
@@ -457,7 +463,7 @@ class MainApp(Tk):
             title = 'Wrong format'
             message = u'ข้อมูลไม่ถูกต้อง'
         else:
-            message = err_no
+            message = u'ไม่เจออุปกรณ์ ({})'.format(err_no)
 
         mBox.showerror(title, "ERROR: {} !".format(message))
 
