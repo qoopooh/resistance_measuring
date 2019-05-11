@@ -385,7 +385,7 @@ class MainApp(Tk):
         lot_no = self.lot_var.get().strip()
         if len(lot_no) < 1:
             lot_no = 'xxx'
-            self.lot_no.set(lot_no)
+            self.lot_var.set(lot_no)
 
         try:
             cable_no = int(self.cable_var.get()) + 1
