@@ -2,48 +2,62 @@
 """Resistance Measuring software"""
 
 import csv
-import os
 import json
 
 from datetime import datetime
 from functools import partial
 from glob import glob
+from os import path
 from queue import Queue
 from random import randint
 from threading import Thread
 from time import sleep
 from tkinter import Tk, Menu, Entry, LabelFrame, Label, \
-        StringVar, messagebox as mBox, filedialog
-from tkinter.ttk import Style, Combobox, Button
-
-import serial
+        StringVar, IntVar, messagebox as mBox, filedialog
+from tkinter.ttk import Style, Combobox, Button, Checkbutton
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, PatternFill
+from openpyxl.styles import Alignment, PatternFill, Font
+from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
-VERSION = '0.4'
+VERSION = '1.0'
 TITLE = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME = 150 # milliseconds
+SERIAL_READ_TIMEOUT = 2.5
+
+
+def current_path(filename):
+    """Get current path of app
+
+    Args:
+        filename (string): xxxx.xxx
+
+    Returns:
+        string: full path
+    """
+
+    return  path.join(
+            path.dirname(path.realpath(__file__)),
+            filename)
+
 
 class Config:
     """Save a configuration"""
 
-    path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-            'config.json')
+    _path = current_path('config.json')
 
     comport = None
     test_wo_sensor = False
     lot_no = ''
-    cable_no = 0
 
     def __init__(self):
 
-        if not os.path.exists(self.path):
+        if not path.exists(self._path):
             return
 
-        with open(self.path) as readfile:
+        with open(self._path) as readfile:
             obj = json.load(readfile)
 
             if 'comport' in obj:
@@ -52,18 +66,15 @@ class Config:
                 self.test_wo_sensor = obj['test_wo_sensor']
             if 'lot_no' in obj:
                 self.lot_no = obj['lot_no']
-            if 'cable_no' in obj:
-                self.cable_no = obj['cable_no']
 
     def save(self):
         """Save to json file"""
 
-        with open(self.path, 'w') as outfile:
+        with open(self._path, 'w') as outfile:
             out = {
                 'comport': self.comport,
                 'test_wo_sensor': self.test_wo_sensor,
                 'lot_no': self.lot_no,
-                'cable_no': self.cable_no,
             }
             json.dump(out, outfile, indent=2)
 
@@ -73,18 +84,16 @@ class Recorder:
     """
 
     def __init__(self):
-        month = datetime.now().strftime("%Y-%m")
-        self.path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                '{}.csv'.format(month))
+        pass
 
 
-    def record(self, val, result='', lot='', cable_no=None):
+    def record(self, lot, val, result='', cable_no=None):
         """Record value
 
         Args:
+            lot (string): lot number
             val (float): resistance value
             result (string): resistance value
-            lot (string): lot number
             cable_no (number): cable number
 
         Returns:
@@ -92,13 +101,9 @@ class Recorder:
         """
 
         time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        month = time[:7]
-        if month not in self.path:
-            self.path = os.path.join(
-                    os.path.dirname(os.path.realpath(__file__)),
-                    '{}.csv'.format(month))
+        _path = current_path('{}.csv'.format(lot))
 
-        with open(self.path, 'a+') as outfile:
+        with open(_path, 'a+') as outfile:
             if cable_no:
                 msg = '{},{},{},{},{}\n'.format(time, lot, cable_no, val, result)
             else:
@@ -107,7 +112,31 @@ class Recorder:
 
             outfile.write(msg)
 
-        return month
+
+    def get_last_cable_number(self, lot):
+        """Get last cable number from a lot
+
+        Args:
+            lot (string): lot name
+
+        Returns:
+            number: last number
+        """
+
+        _path = current_path('{}.csv'.format(lot))
+
+        number = 0
+        if not path.exists(_path):
+            return number
+
+        with open(_path) as infile:
+            lines = infile.readlines()
+            cols = lines[-1].split(',')
+            if cols[2].isdigit():
+                # cable number
+                number = int(cols[2])
+
+        return number
 
 
 class MainApp(Tk):
@@ -117,6 +146,7 @@ class MainApp(Tk):
     recorder = Recorder()
     queue = Queue()
     serial = None
+    last_month = ''
 
     def __init__(self, win):
         """Big frame"""
@@ -126,16 +156,16 @@ class MainApp(Tk):
         menu_bar = Menu(win)
         win.config(menu=menu_bar)
 
-        self.export_menu = Menu()
-        self._create_csv_log_menu()
+        #self.export_menu = Menu()
+        #self._create_csv_log_menu()
 
         file_menu = Menu()
-        file_menu.add_cascade(label='Export', menu=self.export_menu)
+        #file_menu.add_cascade(label='Export', menu=self.export_menu)
         file_menu.add_separator()
         file_menu.add_command(label='Exit', command=self.quit)
         menu_bar.add_cascade(label='File', menu=file_menu)
 
-        self.resistance_label = Label(win, text='XXX.XX')
+        self.resistance_label = Label(win, text='XXX')
         self.resistance_label.config(background='green', foreground='black')
         self.resistance_label.grid(
                 column=0, row=0,
@@ -172,28 +202,58 @@ class MainApp(Tk):
         lot_label = Label(setting_frame, text='Lot no.')
         lot_label.grid(row=0, column=1)
         self.lot_var = StringVar()
-        lot_entry = Entry(setting_frame, width=20, textvariable=self.lot_var)
-        lot_entry.grid(row=0, column=2, padx=8, pady=4)
+        self.lot_entry = Entry(setting_frame, width=20,
+                state='readonly', textvariable=self.lot_var)
+        self.lot_entry.grid(row=0, column=2, padx=8, pady=4)
+
+        self.lot_lock_var = IntVar()
+        Checkbutton(setting_frame, text="Lock",
+                variable=self.lot_lock_var,
+                command=self.on_lock_changed,
+                ).grid(row=0, column=3)
 
         cable_label = Label(setting_frame, text='Cable no.')
         cable_label.grid(row=1, column=1)
         self.cable_var = StringVar()
         cable_entry = Entry(setting_frame, width=20, textvariable=self.cable_var, justify='center', state='readonly')
-        cable_entry.grid(row=1, column=2, padx=8, pady=4)
+        cable_entry.grid(row=1, column=2, pady=4)
+        self.export_button = Button(setting_frame,
+                text='Export',
+                command=self._export_data,
+                )
+        self.export_button.grid(row=1, column=3, padx=8)
 
         #
         # init cable info
         #
         self.lot_var.set(self.cfg.lot_no)
-        self.cable_var.set(self.cfg.cable_no)
+        self.lot_lock_var.set(1)
+        self.cable_var.set(self.recorder.get_last_cable_number(self.cfg.lot_no))
 
         win.bind("<Configure>", self.on_resize)
 
 
     def on_resize(self, event):
+        """Window changed size"""
+
         #print('on_resize: {} {}'.format(event.width, event.height))
         self.resistance_label.config(
                 font=('times', int(self.master.winfo_width() / 5), 'bold'))
+
+
+    def on_lock_changed(self):
+        """Lot number lock has been changed"""
+
+        if self.lot_lock_var.get():
+            self.check_button.config(state='active')
+            self.export_button.config(state='active')
+            self.lot_entry.config(state='readonly')
+            cable_no = self.recorder.get_last_cable_number(self.lot_var.get())
+            self.cable_var.set(str(cable_no))
+        else:
+            self.check_button.config(state='disabled')
+            self.export_button.config(state='disabled')
+            self.lot_entry.config(state='normal')
 
 
     def quit(self):
@@ -211,6 +271,7 @@ class MainApp(Tk):
         # Manage ui
         #
         self.resistance_label.config(bg='gray', text='?')
+        self.export_button.config(state='disabled')
         self.check_button.config(state='disabled')
         self.check_button.focus()
 
@@ -239,30 +300,46 @@ class MainApp(Tk):
             try:
                 port = self.selected_port_var.get()
                 if not self.serial:
-                    self.serial =  serial.Serial(port, 9600, timeout=3)
-                    sleep(2)
+                    self.serial =  Serial(port, 9600, timeout=SERIAL_READ_TIMEOUT)
+                    self.serial.readline()
                 elif port != self.serial.name:
                     self.serial.close()
-                    self.serial =  serial.Serial(port, 9600, timeout=3)
-                    sleep(2)
+                    self.serial =  Serial(port, 9600, timeout=SERIAL_READ_TIMEOUT)
+                    self.serial.readline()
 
+                self.serial.flush()
                 self.serial.write(b'M\n')
                 data = self.serial.readline()
-                if data:
-                    print('{}: {}'.format(self.serial.name, data))
-                    val = float(data.strip())
-                else:
-                    val = -2
+                if len(data) == 0:
+                    data = None
+
+                msg = data.decode('ascii').strip()
+                #print('{}: {} -> {}'.format(self.serial.name, data, msg))
+
+                val = float(msg)
 
                 if port != self.cfg.comport:
                     self.cfg.comport = port
                     self.cfg.save()
 
-            except Exception as e:
+            except SerialException as e:
                 print(e)
                 self.serial = None
                 val = -1
-                #self._update_portlist()
+            except AttributeError as e:
+                print(e)
+                val = -2
+            except ValueError as e:
+                print(e)
+                val = -3
+                if port != self.cfg.comport:
+                    self.cfg.comport = port
+                    self.cfg.save()
+            except Exception as e:
+                print('{}: {}'.format(type(e), e))
+                self.serial = None
+                val = -10
+
         self.queue.put(val)
 
 
@@ -284,26 +361,37 @@ class MainApp(Tk):
             self.resistance_label.config(bg='red', text='{}'.format(val))
 
         if val > 0:
-            month = self.recorder.record(val, result, lot_no, cable_no)
-            if month != self.last_month:
-                self._create_csv_log_menu()
+            self.recorder.record(lot_no, val, result, cable_no)
+
             self.cfg.lot_no = lot_no
-            self.cfg.cable_no = cable_no
             self.cfg.save()
             self.cable_var.set(str(cable_no))
 
+        else:
+            self._error_dialog(val)
+
+        self.export_button.config(state='active')
         self.check_button.config(state='active')
 
 
     def _get_cable_info(self):
+        """Get cable lot, number
+
+        Returns:
+            string: cable lot
+            number: cable number
+        """
 
         lot_no = self.lot_var.get().strip()
-        cable_no = 1
-        if lot_no == self.cfg.lot_no:
-            try:
-                cable_no = int(self.cable_var.get()) + 1
-            except Exception as e:
-                print(e)
+        if len(lot_no) < 1:
+            lot_no = 'xxx'
+            self.lot_var.set(lot_no)
+
+        try:
+            cable_no = int(self.cable_var.get()) + 1
+        except Exception as e:
+            print(e)
+            cable_no = 1
 
         return lot_no, cable_no
 
@@ -315,6 +403,8 @@ class MainApp(Tk):
         self.port_combobox['values'] = ports
         if self.cfg.comport and self.cfg.comport in ports:
             self.selected_port_var.set(self.cfg.comport)
+        else:
+            self.selected_port_var.set('')
 
 
     def _portlist(self):
@@ -335,38 +425,15 @@ class MainApp(Tk):
         if len(_ports) < 1:
             return ports
 
-        #for port in _ports:
-            #ports.append(port.device)
-        #return ports
         return [ port.device for port in _ports ]
 
 
-    def _create_csv_log_menu(self):
-        """Create log file list"""
-
-        last = self.export_menu.index("end")
-        if last:
-            for i in reversed(range(last+1)):
-                self.export_menu.delete(i)
-        months = sorted([ filename[:-4] for filename in glob('*.csv') ])
-        for month in reversed(months):
-            action_with_arg = partial(self._export_data, month)
-            self.export_menu.add_command(label=month, command=action_with_arg)
-        print('_create_csv_log_menu: {}'.format(months))
-        if len(months) > 0:
-            self.last_month = months[-1]
-        else:
-            self.last_month = ''
-
-
-    def _export_data(self, filename):
-        """Export month log as xlsx
-
-        Args:
-            filename (string): month name
+    def _export_data(self):
+        """Export lot log as xlsx
         """
 
         folder = filedialog.askdirectory()
+        filename = self.lot_var.get()
         if not folder:
             return
 
@@ -381,6 +448,9 @@ class MainApp(Tk):
             ws.append(headers)
             for row in csv.reader(f):
                 for i in no_cols:
+                    #
+                    # Parse string to number for some columns
+                    #
                     try:
                         row[i] = int(row[i])
                     except Exception as e:
@@ -393,14 +463,16 @@ class MainApp(Tk):
         for i in range(len(headers)):
             ws['{}1'.format(chr(ord('A')+i))].fill = fill_format
 
+        self._set_failed_row(ws)
+
         #
         # Freeze first row / col
         #
         c = ws['B2']
         ws.freeze_panes = c
 
-        path = os.path.join(folder, 'resistance-{}.xlsx'.format(filename))
-        wb.save(path)
+        _path = path.join(folder, 'resistance-{}.xlsx'.format(filename))
+        wb.save(_path)
 
 
     def _adjust_column_width(self, worksheet):
@@ -424,6 +496,43 @@ class MainApp(Tk):
             adjusted_width = (max_length + 2) * 1.2
             column_name = chr(ord('A') + col_idx - 1)
             worksheet.column_dimensions[column_name].width = adjusted_width
+
+
+    def _set_failed_row(self, worksheet):
+        """Make red on failed row
+
+        Args:
+            worksheet (Worksheet): active sheet
+        """
+
+        for row in worksheet.rows:
+            if 'fail' in str(row[4].value).lower():
+                for cell in row:
+                    cell.font = Font(color = 'FFFF0000')
+
+    def _error_dialog(self, err_no, title="เกิดข้อผิดพลาด"):
+        """Show about box
+
+        Args:
+            err_no (number): error number
+            title (string): title
+        """
+
+        print("_error_dialog {title}: {err_no}".format(
+            title=title, err_no=err_no))
+        if err_no == -1:
+            title = 'No devices'
+            message = u'ไม่เจออุปกรณ์'
+        elif err_no == -2:
+            title = 'No response'
+            message = u'ไม่สามารถรับค่าได้'
+        elif err_no == -3:
+            title = 'Wrong format'
+            message = u'ข้อมูลไม่ถูกต้อง'
+        else:
+            message = u'ไม่เจออุปกรณ์ ({})'.format(err_no)
+
+        mBox.showerror(title, "ERROR: {} !".format(message))
 
 
 if __name__ == '__main__':
