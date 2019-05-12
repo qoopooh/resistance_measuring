@@ -17,7 +17,7 @@ from tkinter import Tk, Menu, Entry, LabelFrame, Label, \
 from tkinter.ttk import Style, Combobox, Button, Checkbutton
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, PatternFill
+from openpyxl.styles import Alignment, PatternFill, Font
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
@@ -165,7 +165,7 @@ class MainApp(Tk):
         file_menu.add_command(label='Exit', command=self.quit)
         menu_bar.add_cascade(label='File', menu=file_menu)
 
-        self.resistance_label = Label(win, text='XXX.XX')
+        self.resistance_label = Label(win, text='XXX')
         self.resistance_label.config(background='green', foreground='black')
         self.resistance_label.grid(
                 column=0, row=0,
@@ -428,22 +428,6 @@ class MainApp(Tk):
         return [ port.device for port in _ports ]
 
 
-    def _create_csv_log_menu(self):
-        """Create log file list"""
-
-        last = self.export_menu.index("end")
-        if last:
-            for i in reversed(range(last+1)):
-                self.export_menu.delete(i)
-        months = sorted([ filename[:-4] for filename in glob('*.csv') ])
-        for month in reversed(months):
-            action_with_arg = partial(self._export_data, month)
-            self.export_menu.add_command(label=month, command=action_with_arg)
-        print('_create_csv_log_menu: {}'.format(months))
-        if len(months) > 0:
-            self.last_month = months[-1]
-
-
     def _export_data(self):
         """Export lot log as xlsx
         """
@@ -464,6 +448,9 @@ class MainApp(Tk):
             ws.append(headers)
             for row in csv.reader(f):
                 for i in no_cols:
+                    #
+                    # Parse string to number for some columns
+                    #
                     try:
                         row[i] = int(row[i])
                     except Exception as e:
@@ -475,6 +462,8 @@ class MainApp(Tk):
         self._adjust_column_width(ws)
         for i in range(len(headers)):
             ws['{}1'.format(chr(ord('A')+i))].fill = fill_format
+
+        self._set_failed_row(ws)
 
         #
         # Freeze first row / col
@@ -508,6 +497,18 @@ class MainApp(Tk):
             column_name = chr(ord('A') + col_idx - 1)
             worksheet.column_dimensions[column_name].width = adjusted_width
 
+
+    def _set_failed_row(self, worksheet):
+        """Make red on failed row
+
+        Args:
+            worksheet (Worksheet): active sheet
+        """
+
+        for row in worksheet.rows:
+            if 'fail' in str(row[4].value).lower():
+                for cell in row:
+                    cell.font = Font(color = 'FFFF0000')
 
     def _error_dialog(self, err_no, title="เกิดข้อผิดพลาด"):
         """Show about box
