@@ -21,7 +21,7 @@ from openpyxl.styles import Alignment, PatternFill, Font
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
-VERSION             = '1.0'
+VERSION             = '1.1'
 TITLE               = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME           = 150     # milliseconds
@@ -193,16 +193,15 @@ class MainApp(Tk):
         self.port_combobox.grid(row=0, column=0, padx=8)
         self._update_portlist()
 
-        refresh_button = Button(setting_frame,
+        Button(setting_frame,
                 text='Refresh',
                 command=self._update_portlist,
                 ).grid(row=1, column=0)
 
-        lot_label = Label(setting_frame, text='Lot no.')
-        lot_label.grid(row=0, column=1)
+        Label(setting_frame, text='Lot no.').grid(row=0, column=1)
         self.lot_var = StringVar()
         self.lot_entry = Entry(setting_frame, width=20,
-                state='readonly', textvariable=self.lot_var)
+                state='readonly', textvariable=self.lot_var,)
         self.lot_entry.grid(row=0, column=2, padx=8, pady=4)
 
         self.lot_lock_var = IntVar()
@@ -211,15 +210,15 @@ class MainApp(Tk):
                 command=self.on_lock_changed,
                 ).grid(row=0, column=3)
 
-        cable_label = Label(setting_frame, text='Cable no.')
-        cable_label.grid(row=1, column=1)
+        Label(setting_frame, text='Cable no.').grid(row=1, column=1)
         self.cable_var = StringVar()
         cable_entry = Entry(setting_frame, width=20, textvariable=self.cable_var, justify='center', state='readonly')
         cable_entry.grid(row=1, column=2, pady=4)
         self.export_button = Button(setting_frame,
                 text='Export',
                 command=self._export_data,
-                ).grid(row=1, column=3, padx=8)
+                )
+        self.export_button.grid(row=1, column=3, padx=8)
 
         #
         # lower / upper tolerance
