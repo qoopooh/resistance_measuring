@@ -21,10 +21,10 @@ from openpyxl.styles import Alignment, PatternFill, Font
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
-VERSION = '1.0'
-TITLE = 'Resistance Measuring V{}'.format(VERSION)
+VERSION             = '1.1'
+TITLE               = 'Resistance Measuring V{}'.format(VERSION)
 
-LOOP_TIME = 150 # milliseconds
+LOOP_TIME           = 150     # milliseconds
 SERIAL_READ_TIMEOUT = 2.5
 
 
@@ -51,6 +51,8 @@ class Config:
     comport = None
     test_wo_sensor = False
     lot_no = ''
+    upper_bound = 400
+    lower_bound = 300
 
     def __init__(self):
 
@@ -66,6 +68,10 @@ class Config:
                 self.test_wo_sensor = obj['test_wo_sensor']
             if 'lot_no' in obj:
                 self.lot_no = obj['lot_no']
+            if 'upper_bound' in obj:
+                self.upper_bound = obj['upper_bound']
+            if 'lower_bound' in obj:
+                self.lower_bound = obj['lower_bound']
 
     def save(self):
         """Save to json file"""
@@ -75,6 +81,8 @@ class Config:
                 'comport': self.comport,
                 'test_wo_sensor': self.test_wo_sensor,
                 'lot_no': self.lot_no,
+                'upper_bound': self.upper_bound,
+                'lower_bound': self.lower_bound,
             }
             json.dump(out, outfile, indent=2)
 
@@ -82,10 +90,6 @@ class Config:
 class Recorder:
     """Record resistance value into csv log file
     """
-
-    def __init__(self):
-        pass
-
 
     def record(self, lot, val, result='', cable_no=None):
         """Record value
@@ -156,11 +160,7 @@ class MainApp(Tk):
         menu_bar = Menu(win)
         win.config(menu=menu_bar)
 
-        #self.export_menu = Menu()
-        #self._create_csv_log_menu()
-
         file_menu = Menu()
-        #file_menu.add_cascade(label='Export', menu=self.export_menu)
         file_menu.add_separator()
         file_menu.add_command(label='Exit', command=self.quit)
         menu_bar.add_cascade(label='File', menu=file_menu)
@@ -180,8 +180,8 @@ class MainApp(Tk):
                 command=self.check,
                 style='my.TButton',
                 )
-        self.check_button.config(width=20)
         self.check_button.grid(column=0, row=1)
+        self.check_button.config(width=20)
         self.check_button.focus()
 
         setting_frame = LabelFrame(win, text='Setting')
@@ -193,17 +193,15 @@ class MainApp(Tk):
         self.port_combobox.grid(row=0, column=0, padx=8)
         self._update_portlist()
 
-        refresh_button = Button(setting_frame,
+        Button(setting_frame,
                 text='Refresh',
                 command=self._update_portlist,
-                )
-        refresh_button.grid(row=1, column=0)
+                ).grid(row=1, column=0)
 
-        lot_label = Label(setting_frame, text='Lot no.')
-        lot_label.grid(row=0, column=1)
+        Label(setting_frame, text='Lot no.').grid(row=0, column=1)
         self.lot_var = StringVar()
         self.lot_entry = Entry(setting_frame, width=20,
-                state='readonly', textvariable=self.lot_var)
+                state='readonly', textvariable=self.lot_var,)
         self.lot_entry.grid(row=0, column=2, padx=8, pady=4)
 
         self.lot_lock_var = IntVar()
@@ -212,8 +210,7 @@ class MainApp(Tk):
                 command=self.on_lock_changed,
                 ).grid(row=0, column=3)
 
-        cable_label = Label(setting_frame, text='Cable no.')
-        cable_label.grid(row=1, column=1)
+        Label(setting_frame, text='Cable no.').grid(row=1, column=1)
         self.cable_var = StringVar()
         cable_entry = Entry(setting_frame, width=20, textvariable=self.cable_var, justify='center', state='readonly')
         cable_entry.grid(row=1, column=2, pady=4)
@@ -224,8 +221,26 @@ class MainApp(Tk):
         self.export_button.grid(row=1, column=3, padx=8)
 
         #
+        # lower / upper tolerance
+        #
+        Label(setting_frame, text='Upper bound').grid(row=2, column=1)
+        self.upper_var = StringVar()
+        self.upper_entry = Entry(setting_frame, width=20,
+                textvariable=self.upper_var, justify='center', state='readonly')
+        self.upper_entry.grid(row=2, column=2)
+
+        Label(setting_frame, text='Lower bound').grid(row=3, column=1)
+        self.lower_var = StringVar()
+        self.lower_entry = Entry(setting_frame, width=20,
+                textvariable=self.lower_var, justify='center', state='readonly')
+        self.lower_entry.grid(row=3, column=2)
+
+
+        #
         # init cable info
         #
+        self.upper_var.set(self.cfg.upper_bound)
+        self.lower_var.set(self.cfg.lower_bound)
         self.lot_var.set(self.cfg.lot_no)
         self.lot_lock_var.set(1)
         self.cable_var.set(self.recorder.get_last_cable_number(self.cfg.lot_no))
@@ -248,12 +263,19 @@ class MainApp(Tk):
             self.check_button.config(state='active')
             self.export_button.config(state='active')
             self.lot_entry.config(state='readonly')
+            self.upper_entry.config(state='readonly')
+            self.lower_entry.config(state='readonly')
             cable_no = self.recorder.get_last_cable_number(self.lot_var.get())
             self.cable_var.set(str(cable_no))
+
+            self.cfg.upper_bound = int(self.upper_var.get())
+            self.cfg.lower_bound = int(self.lower_var.get())
         else:
             self.check_button.config(state='disabled')
             self.export_button.config(state='disabled')
             self.lot_entry.config(state='normal')
+            self.upper_entry.config(state='normal')
+            self.lower_entry.config(state='normal')
 
 
     def quit(self):
@@ -354,7 +376,7 @@ class MainApp(Tk):
         lot_no, cable_no = self._get_cable_info()
 
         result = 'Pass'
-        if val >= 300 and val <= 400:
+        if val >= self.cfg.lower_bound and val <= self.cfg.upper_bound:
             self.resistance_label.config(bg='green', text='{}'.format(val))
         else:
             result = 'Fail'
