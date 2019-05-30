@@ -21,7 +21,7 @@ from openpyxl.styles import Alignment, PatternFill, Font
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
-VERSION             = '1.2'
+VERSION             = '1.3'
 TITLE               = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME           = 150     # milliseconds
@@ -165,6 +165,10 @@ class MainApp(Tk):
         file_menu.add_command(label='Exit', command=self.quit)
         menu_bar.add_cascade(label='File', menu=file_menu)
 
+        history_menu = Menu()
+        history_menu.add_command(label='History', command=self._history_dialog)
+        menu_bar.add_cascade(label='Help', menu=history_menu)
+
         self.resistance_label = Label(win, text='XXX')
         self.resistance_label.config(background='green', foreground='black')
         self.resistance_label.grid(
@@ -241,7 +245,7 @@ class MainApp(Tk):
         #
         self.upper_var.set(self.cfg.upper_bound)
         self.lower_var.set(self.cfg.lower_bound)
-        self.lot_var.set(self.cfg.lot_no)
+        self.lot_var.set(self.cfg.lot_no.strip())
         self.lot_lock_var.set(1)
         self.cable_var.set(self.recorder.get_last_cable_number(self.cfg.lot_no))
 
@@ -265,7 +269,10 @@ class MainApp(Tk):
             self.lot_entry.config(state='readonly')
             self.upper_entry.config(state='readonly')
             self.lower_entry.config(state='readonly')
-            cable_no = self.recorder.get_last_cable_number(self.lot_var.get())
+
+            lot_no = self.lot_var.get().strip()
+            self.lot_var.set(lot_no)
+            cable_no = self.recorder.get_last_cable_number(lot_no)
             self.cable_var.set(str(cable_no))
 
             self.cfg.upper_bound = float(self.upper_var.get())
@@ -409,7 +416,7 @@ class MainApp(Tk):
             number: cable number
         """
 
-        lot_no = self.lot_var.get().strip()
+        lot_no = self.lot_var.get()
         if len(lot_no) < 1:
             lot_no = 'xxx'
             self.lot_var.set(lot_no)
@@ -538,7 +545,7 @@ class MainApp(Tk):
                     cell.font = Font(color = 'FFFF0000')
 
     def _error_dialog(self, err_no, title="เกิดข้อผิดพลาด"):
-        """Show about box
+        """Show error dialog
 
         Args:
             err_no (number): error number
@@ -560,6 +567,20 @@ class MainApp(Tk):
             message = u'ไม่เจออุปกรณ์ ({})'.format(err_no)
 
         mBox.showerror(title, "ERROR: {} !".format(message))
+
+
+    def _history_dialog(self):
+        """Show history dialog"""
+
+        data = """
+Version 1.3:
+    - Add about menu
+    - Strip space on lot number
+
+Version 1.2:
+    - Fix floating point number for tolerance"""
+
+        mBox.showinfo('Revision History', data)
 
 
 if __name__ == '__main__':
