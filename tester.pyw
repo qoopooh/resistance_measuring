@@ -21,7 +21,7 @@ from openpyxl.styles import Alignment, PatternFill, Font
 from serial import Serial, SerialException
 from serial.tools.list_ports import comports
 
-VERSION             = '1.1'
+VERSION             = '1.2'
 TITLE               = 'Resistance Measuring V{}'.format(VERSION)
 
 LOOP_TIME           = 150     # milliseconds
@@ -51,8 +51,8 @@ class Config:
     comport = None
     test_wo_sensor = False
     lot_no = ''
-    upper_bound = 400
-    lower_bound = 300
+    upper_bound = 400.0
+    lower_bound = 300.0
 
     def __init__(self):
 
@@ -268,8 +268,8 @@ class MainApp(Tk):
             cable_no = self.recorder.get_last_cable_number(self.lot_var.get())
             self.cable_var.set(str(cable_no))
 
-            self.cfg.upper_bound = int(self.upper_var.get())
-            self.cfg.lower_bound = int(self.lower_var.get())
+            self.cfg.upper_bound = float(self.upper_var.get())
+            self.cfg.lower_bound = float(self.lower_var.get())
         else:
             self.check_button.config(state='disabled')
             self.export_button.config(state='disabled')
@@ -317,7 +317,12 @@ class MainApp(Tk):
 
         if self.cfg.test_wo_sensor:
             sleep(1)
-            val = randint(28000, 42000) / 100
+
+            self.cfg.upper_bound = float(self.upper_var.get())
+            upper = int(self.cfg.upper_bound * 125)
+            lower = int(self.cfg.lower_bound * 75)
+            val = randint(lower, upper) / 100
+
         else:
             try:
                 port = self.selected_port_var.get()
